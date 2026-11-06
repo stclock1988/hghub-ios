@@ -79,7 +79,7 @@ struct PlayerView: View {
                         VStack(spacing: 12) {
                             Text("已播完最后一集")
                                 .foregroundColor(.white)
-                            Button("返回详情") { dismiss() }
+                            Button("返回详情") { close() }
                                 .buttonStyle(.borderedProminent)
                         }
                     }
@@ -92,16 +92,23 @@ struct PlayerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") { close() }
                 }
             }
             .task(id: currentEpisode.ep_num) {
                 await loadEpisode(currentEpisode)
             }
+            // NOTE: do NOT pause or tear down observers here.
+            // Entering fullscreen in AVPlayerViewController makes
+            // this SwiftUI view disappear (the fullscreen controller
+            // covers it), so pausing here paused playback the moment
+            // the user tapped fullscreen — and tearing down the
+            // observers also killed progress saving and the near-end
+            // auto-advance check after leaving fullscreen. Only
+            // save progress here; real cleanup happens in close(),
+            // the only way out of this full-screen player.
             .onDisappear {
                 saveProgress()
-                teardownObservers()
-                player?.pause()
             }
             .onChange(of: rate) { newRate in
                 player?.rate = Float(newRate)
@@ -267,6 +274,16 @@ struct PlayerView: View {
             isLoading = false
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// The only way out of the player (toolbar 关闭 / finished
+    /// 返回详情). Pause + tear down here, not in onDisappear —
+    /// see the note on onDisappear above.
+    private func close() {
+        saveProgress()
+        teardownObservers()
+        player?.pause()
+        dismiss()
     }
 
     private func saveProgress() {
