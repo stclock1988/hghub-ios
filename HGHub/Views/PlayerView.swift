@@ -189,15 +189,25 @@ struct PlayerView: View {
             // This does not depend on the AVPlayerViewController
             // delegate, which 010/011 relied on and which did not
             // keep playback going on exit.
+            // NOTE: do NOT gate the delayed re-asserts on the rate
+            // right now. onAppear can fire early in the exit
+            // transition, while the player is still playing — the
+            // pause lands later, during the controller handoff. 012
+            // only scheduled the re-assert when rate was already 0
+            // at appear time, so when the pause came later nothing
+            // ever ran. Always schedule the later checks when it was
+            // playing, and let each check decide from the rate at
+            // that moment.
             .onAppear {
-                guard lastKnownPlayback.isPlaying, !isLoading,
-                      let player, player.rate == 0 else { return }
-                player.play()
-                // Re-assert after a short delay: the controller
-                // handoff can pause the player again after appear.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak player] in
-                    guard let player, player.rate == 0 else { return }
+                guard lastKnownPlayback.isPlaying, !isLoading, let player else { return }
+                if player.rate == 0 {
                     player.play()
+                }
+                for delay in [0.5, 1.5] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak player] in
+                        guard let player, player.rate == 0 else { return }
+                        player.play()
+                    }
                 }
             }
             // NOTE: do NOT pause or tear down observers here.
