@@ -186,7 +186,6 @@ struct PlayerView: View {
         errorMessage = nil
         teardownObservers()
         player?.pause()
-        player = nil
         do {
             // Fresh play URL per episode (auth_key ~1 h, map §5.3).
             let info = try await api.play(id: detail.id, ep: episode.ep_num)
@@ -197,10 +196,23 @@ struct PlayerView: View {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
 
+            // Keep ONE AVPlayer for the whole session and swap its
+            // item per episode. Creating a new player per episode
+            // breaks fullscreen: AVPlayerViewController holds the
+            // old player, so the next episode would not start in
+            // the fullscreen controller. replaceCurrentItem keeps
+            // the same player (and the fullscreen presentation)
+            // alive across episodes.
             let item = AVPlayerItem(url: url)
-            let newPlayer = AVPlayer(playerItem: item)
+            let newPlayer: AVPlayer
+            if let existing = player {
+                newPlayer = existing
+                newPlayer.replaceCurrentItem(with: item)
+            } else {
+                newPlayer = AVPlayer(playerItem: item)
+                player = newPlayer
+            }
             newPlayer.rate = Float(rate)
-            player = newPlayer
 
             // Resume from local history for this episode.
             if let resume = history.entry(for: detail.id),
