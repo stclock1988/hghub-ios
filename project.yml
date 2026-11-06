@@ -1,0 +1,49 @@
+name: HGHub
+options:
+  bundleIdPrefix: com.hghub
+settings:
+  base:
+    MARKETING_VERSION: 1.0.0
+    CURRENT_PROJECT_VERSION: 1
+targets:
+  HGHub:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: HGHub
+    preBuildScripts:
+      - name: Generate AppIcon
+        script: |
+          python3 -m pip install --quiet Pillow
+          python3 "${SRCROOT}/Scripts/generate_appicon.py"
+        basedOnDependencyAnalysis: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hghub.app
+        PRODUCT_NAME: HGHub
+        SWIFT_VERSION: "5.9"
+        SWIFT_OBJC_BRIDGING_HEADER: HGHub/HGHub-Bridging-Header.h
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_BITCODE: "NO"
+        DEAD_CODE_STRIPPING: "YES"
+    info:
+      path: HGHub/Info.plist
+      properties:
+        CFBundleDisplayName: HGHub
+        CFBundleName: HGHub
+        BuildLabel: "20261106001"
+        UILaunchScreen: {}
+        # Fullscreen auto-rotate for landscape videos needs the app
+        # itself to declare landscape support: without it iOS never
+        # rotates, no matter what the player view controller reports.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Video CDNs serve many different hosts, so App Transport
+        # Security must allow arbitrary loads. No credentials are sent
+        # to media hosts; only public video URLs are fetched.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
