@@ -1,6 +1,6 @@
 # HGHub iOS
 
-HGHub 的第三方 iOS 移植版：免登录浏览与播放黄果站短剧。
+HGHub 的第三方 iOS 移植版：免登录浏览与播放短剧。
 
 - 上游：[Minireel/HGhub](https://github.com/Minireel/HGhub)（Rust + Tauri 2 + React，Windows / macOS / Android），本仓库是按其接口地图做的原生 SwiftUI iOS 版，与红果官方 App 无关，也与 `jackotom/hongguo-drama` 无关。
 - 接口：单一边缘入口 `POST /api/edge/request`（method / path / base64 body + 可选 Bearer），无签名、无设备注册、无 CENC。播放是普通 HLS AES-128，AVPlayer 原生播放；封面是 AES-128-CBC 密文，本地解密后显示。

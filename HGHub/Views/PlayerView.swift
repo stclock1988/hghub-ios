@@ -96,13 +96,19 @@ struct PlayerView: View {
                     Button("关闭") { close() }
                 }
             }
-            // Initial load only. Episode changes do NOT go through
-            // .task(id:) — see selectEpisode: a .task is cancelled
-            // when its view disappears, and entering fullscreen
-            // counts as disappearing, so an auto-advance triggered
-            // in fullscreen would only load after leaving fullscreen.
+            // Initial load only, and only once: .task re-runs every
+            // time this view re-appears, and leaving fullscreen
+            // counts as re-appearing, so an unconditional load here
+            // re-fetched the episode, swapped in a fresh item and
+            // restarted playback on every fullscreen exit — even
+            // though the player itself (006) is the same one. A
+            // successful load leaves player non-nil; a cancelled or
+            // failed first load leaves it nil and is retried on the
+            // next appear.
             .task {
-                await loadEpisode(currentEpisode)
+                if player == nil {
+                    await loadEpisode(currentEpisode)
+                }
             }
             // NOTE: do NOT pause or tear down observers here.
             // Entering fullscreen in AVPlayerViewController makes
