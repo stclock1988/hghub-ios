@@ -24,10 +24,12 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
         controller.showsPlaybackControls = true
         controller.allowsPictureInPicturePlayback = true
         controller.delegate = context.coordinator
+        context.coordinator.setPlayer(player)
         return controller
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
+        context.coordinator.setPlayer(player)
         if uiViewController.player !== player {
             uiViewController.player = player
         }
@@ -39,28 +41,49 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
     /// before the transition and restore exactly that state after
     /// it: playing stays playing, paused stays paused.
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        /// The single player for the session. Held directly: by the
+        /// time the exit transition ends, the player may already
+        /// have moved to a fresh inline controller, so reaching it
+        /// through the fullscreen controller's `player` can be nil.
+        private weak var player: AVPlayer?
         private var wasPlaying = false
 
-        private func capture(_ controller: AVPlayerViewController) {
+        func setPlayer(_ player: AVPlayer?) {
+            self.player = player
+        }
+
+        private func capture() {
             // rate > 0 is the playback intent: it stays 1 even while
             // the player is briefly stalled/buffering, unlike
             // timeControlStatus which would read as waiting.
-            wasPlaying = (controller.player?.rate ?? 0) > 0
+            wasPlaying = (player?.rate ?? 0) > 0
         }
 
         func playerViewControllerWillBeginFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
-            capture(playerViewController)
+            capture()
         }
 
         func playerViewControllerWillEndFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
             // Re-capture on the way out: the user may have paused or
             // resumed while fullscreen, and that is the state to keep.
-            capture(playerViewController)
+            capture()
         }
 
         func playerViewControllerDidEndFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
-            if wasPlaying {
-                playerViewController.player?.play()
+            restoreIfNeeded()
+        }
+
+        /// Restore the pre-exit state, twice: once right after the
+        /// transition, and once more after a short delay. The
+        /// controller handoff can pause the player again after
+        /// DidEnd returns, so a single play() there is not enough.
+        /// If the player was paused before exiting, nothing happens.
+        private func restoreIfNeeded() {
+            guard wasPlaying, let player else { return }
+            player.play()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak player] in
+                guard let player, player.rate == 0 else { return }
+                player.play()
             }
         }
     }
