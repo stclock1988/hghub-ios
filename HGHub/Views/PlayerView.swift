@@ -89,6 +89,15 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
     }
 }
 
+/// Tracks the latest known playback state, sampled once a second by
+/// the periodic time observer. It has to be a reference type held in
+/// @State: a plain @State Bool can't be written from the observer
+/// closure (the View struct is a value type, so the closure would
+/// only see a copy).
+final class LastKnownPlaybackState {
+    var isPlaying = false
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var api: HGHubAPI
@@ -106,6 +115,7 @@ struct PlayerView: View {
     @State private var rate: Double = 1.0
     @State private var endObserver: NSObjectProtocol?
     @State private var loadGeneration = 0
+    @State private var lastKnownPlayback = LastKnownPlaybackState()
 
     init(detail: Detail, startEpisode: Episode) {
         self.detail = detail
@@ -168,6 +178,26 @@ struct PlayerView: View {
             .task {
                 if player == nil {
                     await loadEpisode(currentEpisode)
+                }
+            }
+            // Fullscreen exit counts as re-appearing (entering it
+            // counts as disappearing — that is what 005 ran into).
+            // Restore the playback state sampled by the periodic
+            // observer: if it was playing right up to the exit and
+            // the player is now paused, resume it. If it was paused
+            // (including a pause made while fullscreen), do nothing.
+            // This does not depend on the AVPlayerViewController
+            // delegate, which 010/011 relied on and which did not
+            // keep playback going on exit.
+            .onAppear {
+                guard lastKnownPlayback.isPlaying, !isLoading,
+                      let player, player.rate == 0 else { return }
+                player.play()
+                // Re-assert after a short delay: the controller
+                // handoff can pause the player again after appear.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak player] in
+                    guard let player, player.rate == 0 else { return }
+                    player.play()
                 }
             }
             // NOTE: do NOT pause or tear down observers here.
@@ -352,8 +382,11 @@ struct PlayerView: View {
             let observer = newPlayer.addPeriodicTimeObserver(
                 forInterval: CMTime(seconds: 1, preferredTimescale: 1),
                 queue: .main
-            ) { [weak newPlayer, weak history] _ in
-                guard let history, let newPlayer else { return }
+            ) { [weak newPlayer, weak history, weak lastKnownPlayback] _ in
+                guard let history, let newPlayer, let lastKnownPlayback else { return }
+                // Sample the playback state every second: this is
+                // what onAppear restores after a fullscreen exit.
+                lastKnownPlayback.isPlaying = newPlayer.rate > 0
                 let seconds = newPlayer.currentTime().seconds
                 guard seconds.isFinite, seconds > 0 else { return }
                 // Near-end trigger (backup for the end notification).
@@ -376,6 +409,7 @@ struct PlayerView: View {
 
             isLoading = false
             newPlayer.play()
+            lastKnownPlayback.isPlaying = true
         } catch {
             isLoading = false
             errorMessage = error.localizedDescription
@@ -394,6 +428,7 @@ struct PlayerView: View {
         // call play() after we left, so the next episode kept
         // playing — and auto-advancing — in the background.
         loadGeneration += 1
+        lastKnownPlayback.isPlaying = false
         player?.pause()
         player?.replaceCurrentItem(with: nil)
         try? AVAudioSession.sharedInstance().setActive(false)
