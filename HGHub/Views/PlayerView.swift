@@ -322,7 +322,16 @@ struct PlayerView: View {
     private func close() {
         saveProgress()
         teardownObservers()
+        // Invalidate any load still in flight (e.g. an auto-advance
+        // fetch started just before closing): without this, its
+        // tail would replace the item, re-add the observers and
+        // call play() after we left, so the next episode kept
+        // playing — and auto-advancing — in the background.
+        loadGeneration += 1
         player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        try? AVAudioSession.sharedInstance().setActive(false)
+        player = nil
         dismiss()
     }
 
