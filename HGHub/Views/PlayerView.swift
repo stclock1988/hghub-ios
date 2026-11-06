@@ -44,6 +44,7 @@ struct PlayerView: View {
     @State private var errorMessage: String?
     @State private var finished = false
     @State private var rate: Double = 1.0
+    @State private var endObserver: NSObjectProtocol?
 
     init(detail: Detail, startEpisode: Episode) {
         self.detail = detail
@@ -96,17 +97,6 @@ struct PlayerView: View {
             }
             .task(id: currentEpisode.ep_num) {
                 await loadEpisode(currentEpisode)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
-                // Only the current item's end event advances playback.
-                guard let item = notification.object as? AVPlayerItem,
-                      item === player?.currentItem else { return }
-                saveProgress()
-                if let next = nextEpisode {
-                    currentEpisode = next
-                } else {
-                    finished = true
-                }
             }
             .onDisappear {
                 saveProgress()
@@ -169,7 +159,11 @@ struct PlayerView: View {
     }
 
     private var nextEpisode: Episode? {
-        guard let index = sortedEpisodes.firstIndex(where: { $0.ep_num == currentEpisode.ep_num }),
+        nextEpisode(after: currentEpisode)
+    }
+
+    private func nextEpisode(after episode: Episode) -> Episode? {
+        guard let index = sortedEpisodes.firstIndex(where: { $0.ep_num == episode.ep_num }),
               index + 1 < sortedEpisodes.count else { return nil }
         return sortedEpisodes[index + 1]
     }
@@ -209,13 +203,56 @@ struct PlayerView: View {
                 await newPlayer.seek(to: CMTime(seconds: resume.seconds, preferredTimescale: 600))
             }
 
+            // Auto-advance, two triggers (either one is enough):
+            // 1) this item's end notification, observed on the item
+            //    itself — the old .onReceive handler could capture a
+            //    stale `player` (nil at first render) and never fire;
+            // 2) a 1 s periodic check that fires when playback is
+            //    within 1.5 s of the item's duration, in case the end
+            //    notification is missed. Both share one didAdvance
+            //    flag so the next episode is only started once.
+            var didAdvance = false
+            let advanceOnce: () -> Void = {
+                guard !didAdvance else { return }
+                didAdvance = true
+                let seconds = newPlayer.currentTime().seconds
+                if seconds.isFinite, seconds > 1 {
+                    history.record(
+                        videoId: detail.id, title: detail.title, cover: detail.cover,
+                        ep: episode.ep_num, seconds: seconds,
+                        duration: Double(info.duration)
+                    )
+                }
+                if let next = self.nextEpisode(after: episode) {
+                    self.currentEpisode = next
+                } else {
+                    self.finished = true
+                }
+            }
+            endObserver = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: item,
+                queue: .main
+            ) { _ in advanceOnce() }
+
+            var lastSavedSeconds = 0.0
             let observer = newPlayer.addPeriodicTimeObserver(
-                forInterval: CMTime(seconds: 5, preferredTimescale: 1),
+                forInterval: CMTime(seconds: 1, preferredTimescale: 1),
                 queue: .main
             ) { [weak newPlayer, weak history] _ in
                 guard let history, let newPlayer else { return }
                 let seconds = newPlayer.currentTime().seconds
                 guard seconds.isFinite, seconds > 0 else { return }
+                // Near-end trigger (backup for the end notification).
+                if let duration = newPlayer.currentItem?.duration.seconds,
+                   duration.isFinite, duration > 10,
+                   seconds >= duration - 1.5 {
+                    advanceOnce()
+                    return
+                }
+                // Progress: save at most every 5 s.
+                guard seconds - lastSavedSeconds >= 5 else { return }
+                lastSavedSeconds = seconds
                 history.record(
                     videoId: detail.id, title: detail.title, cover: detail.cover,
                     ep: episode.ep_num, seconds: seconds,
@@ -248,5 +285,9 @@ struct PlayerView: View {
             player.removeTimeObserver(timeObserver)
         }
         timeObserver = nil
+        if let endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+        }
+        endObserver = nil
     }
 }
