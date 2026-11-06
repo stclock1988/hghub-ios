@@ -33,7 +33,7 @@ targets:
       properties:
         CFBundleDisplayName: HGHub
         CFBundleName: HGHub
-        BuildLabel: "20261106009"
+        BuildLabel: "20261106010"
         UILaunchScreen: {}
         # Fullscreen auto-rotate for landscape videos needs the app
         # itself to declare landscape support: without it iOS never

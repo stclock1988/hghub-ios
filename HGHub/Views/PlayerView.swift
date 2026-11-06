@@ -14,17 +14,54 @@ import AVFoundation
 struct HGPlayerViewController: UIViewControllerRepresentable {
     var player: AVPlayer?
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = true
         controller.allowsPictureInPicturePlayback = true
+        controller.delegate = context.coordinator
         return controller
     }
 
     func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         if uiViewController.player !== player {
             uiViewController.player = player
+        }
+    }
+
+    /// Keeps the playback state across the fullscreen transition.
+    /// Handing the player back from the fullscreen controller can
+    /// leave it paused, so we record whether it was playing just
+    /// before the transition and restore exactly that state after
+    /// it: playing stays playing, paused stays paused.
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        private var wasPlaying = false
+
+        private func capture(_ controller: AVPlayerViewController) {
+            // rate > 0 is the playback intent: it stays 1 even while
+            // the player is briefly stalled/buffering, unlike
+            // timeControlStatus which would read as waiting.
+            wasPlaying = (controller.player?.rate ?? 0) > 0
+        }
+
+        func playerViewControllerWillBeginFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
+            capture(playerViewController)
+        }
+
+        func playerViewControllerWillEndFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
+            // Re-capture on the way out: the user may have paused or
+            // resumed while fullscreen, and that is the state to keep.
+            capture(playerViewController)
+        }
+
+        func playerViewControllerDidEndFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
+            if wasPlaying {
+                playerViewController.player?.play()
+            }
         }
     }
 }
