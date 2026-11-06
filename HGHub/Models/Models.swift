@@ -94,7 +94,12 @@ struct Detail: Codable {
     var is_finished: Bool = false
     var is_original: Int = 0
     var video_type: Int?
-    var duration: Int?
+    /// Live API returns a STRING here ("207"), not a number — the
+    /// map's TS type said number, but the real response (verified
+    /// 2026-11-06 against /api/videos/12) is a string. Decoding it
+    /// as Int failed every detail request, so every drama opened
+    /// blank. Same as VideoCard.duration, which is already a string.
+    var duration: String?
     var created_at: String?
 }
 

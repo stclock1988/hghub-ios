@@ -101,6 +101,12 @@ struct DetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage {
                 ErrorStateView(message: errorMessage) { Task { await load() } }
+            } else {
+                // Safety net: this state should be unreachable
+                // (load() always sets detail or errorMessage), but
+                // never show a bare blank page for it.
+                ProgressView("加载中…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationTitle(detail?.title ?? "")
