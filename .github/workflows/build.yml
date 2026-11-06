@@ -1,0 +1,55 @@
+name: Build HGHub IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build & archive (unsigned)
+        run: |
+          xcodebuild -scheme HGHub -configuration Release \
+            -archivePath build/HGHub.xcarchive \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/Payload
+          cp -r "build/HGHub.xcarchive/Products/Applications/HGHub.app" build/Payload/
+          cd build && zip -r HGHub.ipa Payload && cd ..
+
+      # Fallback if the Release step below fails (e.g. gh release HTTP 500):
+      # the IPA is still kept as a workflow artifact.
+      - name: Upload IPA artifact (fallback)
+        uses: actions/upload-artifact@v4
+        with:
+          name: HGHub-unsigned-ipa
+          path: build/HGHub.ipa
+
+      - name: Publish IPA as release asset (direct .ipa download)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}-${{ github.run_attempt }}"
+          gh release create "$TAG" build/HGHub.ipa \
+            --title "HGHub build $TAG" \
+            --notes "Branch: ${{ github.ref_name }}, commit: ${{ github.sha }}. Unsigned IPA, install via SideStore/AltStore." \
+            --target "${{ github.sha }}"
