@@ -45,6 +45,7 @@ struct PlayerView: View {
     @State private var finished = false
     @State private var rate: Double = 1.0
     @State private var endObserver: NSObjectProtocol?
+    @State private var loadGeneration = 0
 
     init(detail: Detail, startEpisode: Episode) {
         self.detail = detail
@@ -95,7 +96,12 @@ struct PlayerView: View {
                     Button("关闭") { close() }
                 }
             }
-            .task(id: currentEpisode.ep_num) {
+            // Initial load only. Episode changes do NOT go through
+            // .task(id:) — see selectEpisode: a .task is cancelled
+            // when its view disappears, and entering fullscreen
+            // counts as disappearing, so an auto-advance triggered
+            // in fullscreen would only load after leaving fullscreen.
+            .task {
                 await loadEpisode(currentEpisode)
             }
             // NOTE: do NOT pause or tear down observers here.
@@ -145,7 +151,7 @@ struct PlayerView: View {
                 HStack {
                     ForEach(sortedEpisodes) { episode in
                         Button("\(episode.ep_num)") {
-                            currentEpisode = episode
+                            selectEpisode(episode)
                         }
                         .buttonStyle(.bordered)
                         .tint(episode.ep_num == currentEpisode.ep_num ? .accentColor : .secondary)
@@ -176,11 +182,29 @@ struct PlayerView: View {
     }
 
     private func move(by delta: Int) {
-        if delta < 0, let prev = previousEpisode { currentEpisode = prev }
-        if delta > 0, let next = nextEpisode { currentEpisode = next }
+        if delta < 0, let prev = previousEpisode { selectEpisode(prev) }
+        if delta > 0, let next = nextEpisode { selectEpisode(next) }
+    }
+
+    /// Switch episodes imperatively. The load is started with an
+    /// explicit MainActor Task, not a .task(id:) modifier, so it
+    /// runs even while this view is "disappeared" under a
+    /// fullscreen AVPlayerViewController (see the .task note
+    /// above). Tapping the episode already playing is a no-op.
+    private func selectEpisode(_ episode: Episode) {
+        guard episode.ep_num != currentEpisode.ep_num || player == nil else { return }
+        currentEpisode = episode
+        Task { @MainActor in
+            await loadEpisode(episode)
+        }
     }
 
     private func loadEpisode(_ episode: Episode) async {
+        // Guard against overlapping loads (e.g. a tap while a
+        // previous fetch is still in flight): only the newest
+        // load is allowed to touch the player.
+        loadGeneration += 1
+        let generation = loadGeneration
         finished = false
         isLoading = true
         errorMessage = nil
@@ -189,6 +213,7 @@ struct PlayerView: View {
         do {
             // Fresh play URL per episode (auth_key ~1 h, map §5.3).
             let info = try await api.play(id: detail.id, ep: episode.ep_num)
+            guard generation == loadGeneration else { return }
             let urlString = info.video_url.isEmpty ? (info.video_url_hevc ?? "") : info.video_url
             guard let url = URL(string: urlString), !urlString.isEmpty else {
                 throw HGHubError.noPlayURL
@@ -221,6 +246,7 @@ struct PlayerView: View {
                resume.duration <= 0 || resume.seconds < resume.duration - 10 {
                 await newPlayer.seek(to: CMTime(seconds: resume.seconds, preferredTimescale: 600))
             }
+            guard generation == loadGeneration else { return }
 
             // Auto-advance, two triggers (either one is enough):
             // 1) this item's end notification, observed on the item
@@ -243,7 +269,9 @@ struct PlayerView: View {
                     )
                 }
                 if let next = self.nextEpisode(after: episode) {
-                    self.currentEpisode = next
+                    // selectEpisode loads imperatively (not via
+                    // .task(id:)), so this also fires in fullscreen.
+                    self.selectEpisode(next)
                 } else {
                     self.finished = true
                 }
