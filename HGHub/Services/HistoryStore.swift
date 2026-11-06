@@ -16,7 +16,11 @@ struct HistoryEntry: Codable, Identifiable {
     var at: Date
 }
 
-final class HistoryStore: ObservableObject {
+// All access happens on the main thread (SwiftUI views and the
+// player's periodic observer, which runs on .main), so unchecked
+// Sendable is sound here and silences the @Sendable-closure warning
+// in PlayerView's time observer.
+final class HistoryStore: ObservableObject, @unchecked Sendable {
     private static let key = "hghub.history.v1"
     private static let cap = 80
 

@@ -57,6 +57,11 @@ final class CoverDecryptor {
 
         var out = Data(count: data.count)
         var outLength = 0
+        // Copy the capacity to a local first: reading `out.count`
+        // inside `withUnsafeMutableBytes` is an overlapping access
+        // (Swift exclusive-access error) because `out` is already
+        // borrowed mutably by that closure.
+        let outCapacity = out.count
         let status = keyData.withUnsafeBytes { keyPtr in
             ivData.withUnsafeBytes { ivPtr in
                 data.withUnsafeBytes { inPtr in
@@ -68,7 +73,7 @@ final class CoverDecryptor {
                             keyPtr.baseAddress, kCCKeySizeAES128,
                             ivPtr.baseAddress,
                             inPtr.baseAddress, data.count,
-                            outPtr.baseAddress, out.count,
+                            outPtr.baseAddress, outCapacity,
                             &outLength
                         )
                     }
