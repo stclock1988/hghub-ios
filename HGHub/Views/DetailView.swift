@@ -111,10 +111,21 @@ struct DetailView: View {
         }
         .navigationTitle(detail?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(selectedEpisode != nil ? .hidden : .visible, for: .navigationBar)
         .task { await load() }
-        .fullScreenCover(item: $selectedEpisode) { episode in
-            if let detail {
-                PlayerView(detail: detail, startEpisode: episode)
+        // The player lives in the main window hierarchy (an overlay),
+        // not in a fullScreenCover: when PiP starts, the app
+        // backgrounds, and a cover's view can be torn down with its
+        // window, taking the video layer with it — the PiP window
+        // then comes up black even though the player keeps playing
+        // (audio works). In the main hierarchy the layer stays in
+        // the window, so PiP can capture it. (YouTube's player is
+        // inline in the main window, which is why its PiP works in
+        // LiveContainer.)
+        .overlay {
+            if let episode = selectedEpisode, let detail {
+                PlayerView(detail: detail, startEpisode: episode, selectedEpisode: $selectedEpisode)
+                    .ignoresSafeArea()
             }
         }
     }

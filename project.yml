@@ -33,7 +33,7 @@ targets:
       properties:
         CFBundleDisplayName: HGHub
         CFBundleName: HGHub
-        BuildLabel: "20261106016"
+        BuildLabel: "20261106017"
         # Audio background mode: without it iOS suspends the app when
         # it goes to the background, so playback stops and PiP (which
         # also needs it) goes black. With it, the .playback audio
