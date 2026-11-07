@@ -164,16 +164,13 @@ final class LastKnownPlaybackState {
 }
 
 struct PlayerView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var api: HGHubAPI
     @EnvironmentObject private var history: HistoryStore
 
     var detail: Detail
     var startEpisode: Episode
-    /// The episode being played, owned by DetailView. Clearing it
-    /// dismisses the player overlay (the player lives in the main
-    /// window hierarchy, not in a fullScreenCover — see DetailView).
-    @Binding var selectedEpisode: Episode?
 
     @State private var currentEpisode: Episode
     @State private var player: AVPlayer?
@@ -186,10 +183,9 @@ struct PlayerView: View {
     @State private var loadGeneration = 0
     @State private var lastKnownPlayback = LastKnownPlaybackState()
 
-    init(detail: Detail, startEpisode: Episode, selectedEpisode: Binding<Episode?>) {
+    init(detail: Detail, startEpisode: Episode) {
         self.detail = detail
         self.startEpisode = startEpisode
-        _selectedEpisode = selectedEpisode
         _currentEpisode = State(initialValue: startEpisode)
     }
 
@@ -537,7 +533,7 @@ struct PlayerView: View {
         player?.replaceCurrentItem(with: nil)
         try? AVAudioSession.sharedInstance().setActive(false)
         player = nil
-        selectedEpisode = nil
+        dismiss()
     }
 
     private func saveProgress() {
