@@ -33,7 +33,14 @@ targets:
       properties:
         CFBundleDisplayName: HGHub
         CFBundleName: HGHub
-        BuildLabel: "20261106013"
+        BuildLabel: "20261106014"
+        # Audio background mode: without it iOS suspends the app when
+        # it goes to the background, so playback stops and PiP (which
+        # also needs it) goes black. With it, the .playback audio
+        # session set in loadEpisode keeps audio going in the
+        # background and PiP keeps its picture.
+        UIBackgroundModes:
+          - audio
         UILaunchScreen: {}
         # Fullscreen auto-rotate for landscape videos needs the app
         # itself to declare landscape support: without it iOS never

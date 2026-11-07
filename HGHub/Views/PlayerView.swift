@@ -19,12 +19,24 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
     }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
+        // One controller for the whole session. If SwiftUI creates a
+        // fresh AVPlayerViewController when the view re-appears after
+        // a fullscreen exit, the player is detached from the
+        // fullscreen controller and re-attached to the new one, and
+        // that handoff pauses it for a beat (the brief pause 013
+        // still showed, even though playback resumed right after).
+        // Reusing the same controller means the fullscreen
+        // transition happens inside it, with no handoff and no pause.
+        if let existing = context.coordinator.controller {
+            return existing
+        }
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = true
         controller.allowsPictureInPicturePlayback = true
         controller.delegate = context.coordinator
         context.coordinator.setPlayer(player)
+        context.coordinator.controller = controller
         return controller
     }
 
@@ -41,6 +53,10 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
     /// before the transition and restore exactly that state after
     /// it: playing stays playing, paused stays paused.
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        /// The single AVPlayerViewController for the session (see
+        /// makeUIViewController): SwiftUI must not create a fresh one
+        /// on fullscreen exit, or the player handoff pauses playback.
+        var controller: AVPlayerViewController?
         /// The single player for the session. Held directly: by the
         /// time the exit transition ends, the player may already
         /// have moved to a fresh inline controller, so reaching it
