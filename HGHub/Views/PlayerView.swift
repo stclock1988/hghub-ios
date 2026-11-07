@@ -83,6 +83,11 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
             // Re-capture on the way out: the user may have paused or
             // resumed while fullscreen, and that is the state to keep.
             capture()
+            // The player is paused mid-transition (that is the brief
+            // cut on exit, audio included), and restoring only after
+            // the transition leaves the whole transition silent. Keep
+            // it playing through the transition instead.
+            keepPlayingThroughTransition(wasPlaying: wasPlaying)
         }
 
         func playerViewControllerDidEndFullScreenPresentation(_ playerViewController: AVPlayerViewController) {
@@ -103,11 +108,34 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
             }
         }
 
+        /// Keep the player playing through a transition (fullscreen
+        /// exit, PiP start). The player can be paused mid-transition,
+        /// and a resume after the transition leaves an audible /
+        /// visible gap, so re-assert play() at short intervals while
+        /// the transition runs. Only fires while it was playing
+        /// before the transition; a deliberate pause stays paused.
+        private func keepPlayingThroughTransition(wasPlaying: Bool) {
+            guard wasPlaying, let player else { return }
+            if player.rate == 0 {
+                player.play()
+            }
+            for delay in [0.1, 0.2, 0.3, 0.5, 0.8, 1.2] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak player] in
+                    guard let player, player.rate == 0 else { return }
+                    player.play()
+                }
+            }
+        }
+
         /// Whether the player was playing just before PiP started.
         private var wasPlayingBeforePiP = false
 
         func playerViewControllerWillBeginPictureInPicturePresentation(_ playerViewController: AVPlayerViewController) {
             wasPlayingBeforePiP = (player?.rate ?? 0) > 0
+            // Same mid-transition pause as fullscreen exit: if the
+            // player is paused while PiP starts, the PiP window can
+            // come up black. Keep it playing through the start.
+            keepPlayingThroughTransition(wasPlaying: wasPlayingBeforePiP)
         }
 
         func playerViewControllerDidStartPictureInPicturePresentation(_ playerViewController: AVPlayerViewController) {

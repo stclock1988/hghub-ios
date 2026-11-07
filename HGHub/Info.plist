@@ -7,7 +7,7 @@
 	<key>CFBundleName</key>
 	<string>HGHub</string>
 	<key>BuildLabel</key>
-	<string>20261106015</string>
+	<string>20261106016</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
