@@ -102,6 +102,27 @@ struct HGPlayerViewController: UIViewControllerRepresentable {
                 player.play()
             }
         }
+
+        /// Whether the player was playing just before PiP started.
+        private var wasPlayingBeforePiP = false
+
+        func playerViewControllerWillBeginPictureInPicturePresentation(_ playerViewController: AVPlayerViewController) {
+            wasPlayingBeforePiP = (player?.rate ?? 0) > 0
+        }
+
+        func playerViewControllerDidStartPictureInPicturePresentation(_ playerViewController: AVPlayerViewController) {
+            // PiP starts by backgrounding the app, and the player can
+            // be paused in the process — which leaves PiP black. If
+            // it was playing, resume it (and re-assert shortly after).
+            guard wasPlayingBeforePiP, let player else { return }
+            if player.rate == 0 {
+                player.play()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak player] in
+                guard let player, player.rate == 0 else { return }
+                player.play()
+            }
+        }
     }
 }
 
@@ -116,6 +137,7 @@ final class LastKnownPlaybackState {
 
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var api: HGHubAPI
     @EnvironmentObject private var history: HistoryStore
 
@@ -215,15 +237,19 @@ struct PlayerView: View {
             // playing, and let each check decide from the rate at
             // that moment.
             .onAppear {
-                guard lastKnownPlayback.isPlaying, !isLoading, let player else { return }
-                if player.rate == 0 {
-                    player.play()
-                }
-                for delay in [0.5, 1.5] {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak player] in
-                        guard let player, player.rate == 0 else { return }
-                        player.play()
-                    }
+                resumeIfNeeded()
+            }
+            // If the player was paused by leaving the foreground
+            // (backgrounding, or starting PiP), resume it. The player
+            // controller can pause the player when its view is torn
+            // down on backgrounding — in a LiveContainer guest the
+            // host does that even though the process keeps its audio
+            // background mode (YouTube keeps playing there, so the
+            // mode itself works; our player just has to keep playing
+            // too). Returning to the foreground resumes it the same way.
+            .onChange(of: scenePhase) { newPhase in
+                if newPhase == .background || newPhase == .active {
+                    resumeIfNeeded()
                 }
             }
             // NOTE: do NOT pause or tear down observers here.
@@ -439,6 +465,26 @@ struct PlayerView: View {
         } catch {
             isLoading = false
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Resume playback if the last sampled state says it was playing.
+    /// Called from onAppear (fullscreen exit) and from scenePhase
+    /// changes (background / foreground). The delayed re-asserts are
+    /// always scheduled when it was playing: the pause can land after
+    /// the trigger, so each check decides from the rate at that
+    /// moment. If it was paused (including a pause made while
+    /// fullscreen or from the lock screen), nothing happens.
+    private func resumeIfNeeded() {
+        guard lastKnownPlayback.isPlaying, !isLoading, let player else { return }
+        if player.rate == 0 {
+            player.play()
+        }
+        for delay in [0.5, 1.5] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak player] in
+                guard let player, player.rate == 0 else { return }
+                player.play()
+            }
         }
     }
 
