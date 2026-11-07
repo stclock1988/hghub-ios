@@ -48,6 +48,10 @@ final class EdgeClient: ObservableObject {
         didSet { UserDefaults.standard.set(base, forKey: Self.baseKey) }
     }
 
+    /// Bearer token for logged-in calls (nil for guest). Set by
+    /// AuthStore on login / restore / logout.
+    var token: String?
+
     init() {
         let saved = UserDefaults.standard.string(forKey: Self.baseKey)
         self.base = Self.lines.contains(saved ?? "") ? saved! : Self.defaultBase
@@ -65,10 +69,8 @@ final class EdgeClient: ObservableObject {
         return URLSession(configuration: config)
     }
 
-    /// One edge call. `body` is raw JSON data for the inner request
-    /// (nil for GET); it is base64-encoded into the envelope, exactly
-    /// as the Rust client does (map §3).
-    func edge<T: Decodable>(method: String, path: String, body: Data? = nil) async throws -> T {
+    /// Build the envelope POST request for one edge call.
+    private func makeRequest(method: String, path: String, body: Data?) throws -> URLRequest {
         let envelope = EdgeRequestBody(
             method: method,
             path: path,
@@ -84,8 +86,19 @@ final class EdgeClient: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(base + "/", forHTTPHeaderField: "Referer")
-        // Guest: no Authorization header.
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
 
+    /// Perform one edge call with retries, applying `decode` to the
+    /// response body inside the retry loop (so a truncated / malformed
+    /// response is retried, exactly as before the split). Transport
+    /// errors are retried (3 attempts, 350/700 ms); HTTP and business
+    /// errors are final.
+    private func perform<T>(method: String, path: String, body: Data? = nil, decode: (Data) throws -> T) async throws -> T {
+        let request = try makeRequest(method: method, path: path, body: body)
         var lastError: Error = HGHubError.invalidResponse
         // Retry up to 3 attempts, 350 ms / 700 ms backoff (map §3:
         // the site has occasional TLS flakiness).
@@ -104,11 +117,7 @@ final class EdgeClient: ObservableObject {
                 if data.isEmpty {
                     throw HGHubError.invalidResponse
                 }
-                let decoded = try JSONDecoder().decode(EdgeEnvelope<T>.self, from: data)
-                guard decoded.status == 1, let value = decoded.data else {
-                    throw HGHubError.server(decoded.msg ?? "")
-                }
-                return value
+                return try decode(data)
             } catch let error as HGHubError {
                 // Business / auth errors are final — do not retry them.
                 throw error
@@ -122,5 +131,33 @@ final class EdgeClient: ObservableObject {
             }
         }
         throw lastError
+    }
+
+    /// One edge call. `body` is raw JSON data for the inner request
+    /// (nil for GET); it is base64-encoded into the envelope, exactly
+    /// as the Rust client does (map §3).
+    func edge<T: Decodable>(method: String, path: String, body: Data? = nil) async throws -> T {
+        try await perform(method: method, path: path, body: body) { data in
+            let decoded = try JSONDecoder().decode(EdgeEnvelope<T>.self, from: data)
+            guard decoded.status == 1, let value = decoded.data else {
+                throw HGHubError.server(decoded.msg ?? "")
+            }
+            return value
+        }
+    }
+
+    /// An envelope call whose `data` shape is not needed (like /
+    /// collect / follow / send comment / logout). Only the envelope
+    /// `status` is checked; the data is discarded, since the server
+    /// may return null, a bool, or an object here and the client
+    /// does not depend on it.
+    func action(method: String, path: String, body: Data? = nil) async throws {
+        try await perform(method: method, path: path, body: body) { data in
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let status = json["status"] as? Int, status == 1 else {
+                let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["msg"] as? String
+                throw HGHubError.server(msg ?? "")
+            }
+        }
     }
 }

@@ -168,6 +168,7 @@ struct PlayerView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var api: HGHubAPI
     @EnvironmentObject private var history: HistoryStore
+    @EnvironmentObject private var auth: AuthStore
 
     var detail: Detail
     var startEpisode: Episode
@@ -182,6 +183,10 @@ struct PlayerView: View {
     @State private var endObserver: NSObjectProtocol?
     @State private var loadGeneration = 0
     @State private var lastKnownPlayback = LastKnownPlaybackState()
+    @State private var liked = false
+    @State private var collected = false
+    @State private var showComments = false
+    @State private var showLogin = false
 
     init(detail: Detail, startEpisode: Episode) {
         self.detail = detail
@@ -242,6 +247,7 @@ struct PlayerView: View {
             // failed first load leaves it nil and is retried on the
             // next appear.
             .task {
+                refreshInteractionState()
                 if player == nil {
                     await loadEpisode(currentEpisode)
                 }
@@ -295,6 +301,18 @@ struct PlayerView: View {
             .onChange(of: rate) { newRate in
                 player?.rate = Float(newRate)
             }
+            .onChange(of: currentEpisode.ep_num) { _ in
+                refreshInteractionState()
+            }
+            .onChange(of: auth.isLoggedIn) { _ in
+                refreshInteractionState()
+            }
+            .sheet(isPresented: $showComments) {
+                CommentsView(videoId: detail.id, ep: currentEpisode.ep_num)
+            }
+            .sheet(isPresented: $showLogin) {
+                LoginView()
+            }
         }
     }
 
@@ -322,6 +340,24 @@ struct PlayerView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 180)
+            }
+            HStack(spacing: 16) {
+                Button {
+                    Task { await toggleLike() }
+                } label: {
+                    Label(liked ? "已点赞" : "点赞", systemImage: liked ? "heart.fill" : "heart")
+                }
+                Button {
+                    Task { await toggleCollect() }
+                } label: {
+                    Label(collected ? "已收藏" : "收藏", systemImage: collected ? "bookmark.fill" : "bookmark")
+                }
+                Button {
+                    showComments = true
+                } label: {
+                    Label("评论 \(detail.counts.comment)", systemImage: "text.bubble")
+                }
+                Spacer()
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
@@ -513,6 +549,49 @@ struct PlayerView: View {
                 guard let player, player.rate == 0 else { return }
                 player.play()
             }
+        }
+    }
+
+    /// Like / collect state for the current episode. Likes are per
+    /// (video, episode): prefer the me() list, fall back to the
+    /// detail's interaction for the episode it names.
+    private func refreshInteractionState() {
+        let ep = currentEpisode.ep_num
+        if let me = auth.user {
+            liked = me.interactions.like_video_episodes.contains { $0.video_id == detail.id && $0.ep == ep }
+            collected = me.interactions.favorite_video_ids.contains(detail.id)
+        } else if let interaction = detail.interaction {
+            liked = interaction.liked && interaction.liked_ep == ep
+            collected = interaction.collected
+        } else {
+            liked = false
+            collected = false
+        }
+    }
+
+    /// Optimistic toggle (the original client toggles locally first
+    /// and swallows server failures); a failed call reverts the UI.
+    private func toggleLike() async {
+        guard auth.isLoggedIn else { showLogin = true; return }
+        let next = !liked
+        liked = next
+        do {
+            try await api.setVideoLike(id: detail.id, ep: currentEpisode.ep_num, on: next)
+            auth.noteVideoLiked(videoId: detail.id, ep: currentEpisode.ep_num, on: next)
+        } catch {
+            liked = !next
+        }
+    }
+
+    private func toggleCollect() async {
+        guard auth.isLoggedIn else { showLogin = true; return }
+        let next = !collected
+        collected = next
+        do {
+            try await api.setVideoCollect(id: detail.id, on: next)
+            auth.noteVideoCollected(videoId: detail.id, on: next)
+        } catch {
+            collected = !next
         }
     }
 

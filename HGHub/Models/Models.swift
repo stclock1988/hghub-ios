@@ -10,6 +10,9 @@ struct Author: Codable {
     var name: String = ""
     var avatar: String?
     var followers: Int?
+    var is_following: Bool?
+    var following: Int?
+    var like_count: Int?
 }
 
 struct VideoCard: Codable, Identifiable {
@@ -172,3 +175,136 @@ enum HGHubCategory: String, CaseIterable, Identifiable {
 
 /// Hot search tags shown on the search page (map §5.2).
 let hghubHotTags = ["都市", "逆袭", "古风", "系统", "后宫", "校园", "仙侠", "职场", "大男主", "御姐", "脑洞", "奇幻"]
+
+// MARK: - Community (019, map §5.4 / §5.5)
+
+struct PostAuthor: Codable {
+    var id: Int = 0
+    var name: String = ""
+    var avatar: String?
+    var is_following: Bool?
+}
+
+struct PostCounts: Codable {
+    var like: Int = 0
+    var comment: Int = 0
+    var collect: Int = 0
+    var share: Int?
+    var hot: Int?
+}
+
+struct PostInteraction: Codable {
+    var collected: Bool = false
+    var liked: Bool = false
+}
+
+struct Post: Codable, Identifiable {
+    var id: Int
+    var title: String = ""
+    var desc: String?
+    var content: String?
+    var cover: String = ""
+    var tags: [String] = []
+    var hot: Int = 0
+    var video_url: String?
+    var video_id: Int?
+    var author: PostAuthor?
+    var counts: PostCounts?
+    var created_at: String?
+    var publish_time: String?
+    var interaction: PostInteraction?
+}
+
+struct Comment: Codable, Identifiable {
+    var id: Int
+    var user_id: Int = 0
+    var nickname: String = ""
+    var avatar: String?
+    var avatar_color: String?
+    var text: String?
+    var content: String?
+    var time: String = ""
+    var created_at: String?
+    var like_count: Int = 0
+    var liked: Bool = false
+    var reply_count: Int = 0
+    var reply_id: Int = 0
+    var reply_list: [Comment]?
+    var is_pinned: Bool?
+    var ip_region: String?
+
+    /// The comment body: the live API fills `content` (and
+    /// sometimes `text`); prefer content, fall back to text.
+    var displayText: String {
+        if let content, !content.isEmpty { return content }
+        return text ?? ""
+    }
+}
+
+struct CommentPage: Codable {
+    var ep: Int?
+    var revision: String?
+    var reset: Bool?
+    var items: [Comment] = []
+    var pagination: Pagination = Pagination()
+}
+
+/// Body for sending a video comment. `reply_id` is omitted when nil
+/// (top-level comment); when replying it is included and the request
+/// goes to a different path (map §5.5, load-bearing).
+struct SendCommentBody: Encodable {
+    var text: String
+    var reply_id: Int?
+}
+
+// MARK: - Auth (019, map §4)
+
+struct SessionUser: Codable {
+    var id: Int = 0
+    var username: String = ""
+    var nickname: String = ""
+    var avatar: String?
+    var avatar_color: String?
+    var sign: String?
+    var desc: String?
+    var user_type: String?
+    var channel_code: String?
+    var counts: MeCounts?
+}
+
+struct MeCounts: Codable {
+    var like: Int = 0
+    var collect: Int = 0
+    var following: Int = 0
+    var comment: Int = 0
+    var history: Int = 0
+}
+
+struct LikedEpisode: Codable {
+    var video_id: Int = 0
+    var ep: Int = 0
+}
+
+struct MeInteractions: Codable {
+    var like_video_ids: [Int] = []
+    var favorite_video_ids: [Int] = []
+    var like_post_ids: [Int] = []
+    var favorite_post_ids: [Int] = []
+    var follow_user_ids: [Int] = []
+    var like_video_episodes: [LikedEpisode] = []
+}
+
+struct MeUser: Codable {
+    var id: Int = 0
+    var nickname: String = ""
+    var username: String = ""
+    var avatar: String?
+    var avatar_color: String?
+    var counts: MeCounts = MeCounts()
+    var interactions: MeInteractions = MeInteractions()
+}
+
+struct AuthResponse: Codable {
+    var token: String = ""
+    var user: SessionUser = SessionUser()
+}

@@ -6,6 +6,7 @@ import SwiftUI
 struct DetailView: View {
     @EnvironmentObject private var api: HGHubAPI
     @EnvironmentObject private var history: HistoryStore
+    @EnvironmentObject private var auth: AuthStore
 
     var videoId: Int
 
@@ -13,6 +14,8 @@ struct DetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedEpisode: Episode?
+    @State private var following = false
+    @State private var showLogin = false
 
     var body: some View {
         Group {
@@ -38,9 +41,16 @@ struct DetailView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                 if let author = detail.author {
-                                    Text("作者：\(author.name)")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                                    HStack(spacing: 8) {
+                                        Text("作者：\(author.name)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Button(following ? "已关注" : "关注") {
+                                            Task { await toggleFollow(author: author) }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
                                 }
                             }
                         }
@@ -112,10 +122,22 @@ struct DetailView: View {
         .navigationTitle(detail?.title ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
+        .sheet(isPresented: $showLogin) { LoginView() }
         .fullScreenCover(item: $selectedEpisode) { episode in
             if let detail {
                 PlayerView(detail: detail, startEpisode: episode)
             }
+        }
+    }
+
+    private func toggleFollow(author: Author) async {
+        guard auth.isLoggedIn else { showLogin = true; return }
+        let next = !following
+        following = next
+        do {
+            try await api.setFollow(uid: author.id, on: next)
+        } catch {
+            following = !next
         }
     }
 
@@ -126,6 +148,13 @@ struct DetailView: View {
         defer { isLoading = false }
         do {
             detail = try await api.video(id: videoId)
+            if let author = detail?.author {
+                if let me = auth.user {
+                    following = me.interactions.follow_user_ids.contains(author.id)
+                } else {
+                    following = author.is_following ?? false
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

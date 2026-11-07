@@ -1,13 +1,14 @@
-// HGHub iOS v1 — My: local history, line settings, About.
-// No account UI in v1 (guest only).
+// HGHub iOS v1 — My: local history, line settings, account, About.
 
 import SwiftUI
 
 struct MyView: View {
     @EnvironmentObject private var edge: EdgeClient
     @EnvironmentObject private var history: HistoryStore
+    @EnvironmentObject private var auth: AuthStore
 
     @State private var showClearHistory = false
+    @State private var showLogin = false
 
     private var buildLabel: String {
         Bundle.main.infoDictionary?["BuildLabel"] as? String ?? "—"
@@ -15,6 +16,40 @@ struct MyView: View {
 
     var body: some View {
         List {
+            Section("账号") {
+                if auth.isLoggedIn, let user = auth.user {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(user.nickname.isEmpty ? user.username : user.nickname)
+                            .font(.headline)
+                        Text("@\(user.username)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("点赞 \(user.counts.like) · 收藏 \(user.counts.collect) · 关注 \(user.counts.following) · 评论 \(user.counts.comment)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Button("退出登录", role: .destructive) {
+                        Task { await auth.logout() }
+                    }
+                } else if auth.isLoggedIn {
+                    Text("已登录（用户信息加载中）")
+                        .foregroundColor(.secondary)
+                    Button("重试加载") {
+                        Task { await auth.refreshMe() }
+                    }
+                    Button("退出登录", role: .destructive) {
+                        Task { await auth.logout() }
+                    }
+                } else {
+                    Button("登录 / 注册") {
+                        showLogin = true
+                    }
+                    Text("登录后可发评论、点赞、收藏、关注。")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             Section("继续观看") {
                 if history.entries.isEmpty {
                     Text("还没有观看记录")
@@ -75,7 +110,7 @@ struct MyView: View {
                 Text("Required Notice: Copyright (c) 2026 HGhub contributors (https://github.com/Minireel/HGhub)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("游客模式：v1 不做登录、收藏、评论与吃瓜帖子，只做浏览与播放。")
+                Text("游客模式：不登录也能浏览与播放；登录后可发评论、点赞、收藏、关注与看吃瓜帖子。")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
@@ -88,6 +123,7 @@ struct MyView: View {
             }
         }
         .navigationTitle("我的")
+        .sheet(isPresented: $showLogin) { LoginView() }
     }
 
     private func formatTime(_ seconds: Double) -> String {

@@ -16,6 +16,11 @@ struct ContentView: View {
             .tabItem { Label("分类", systemImage: "square.grid.2x2") }
 
             NavigationStack {
+                CommunityView()
+            }
+            .tabItem { Label("社区", systemImage: "newspaper") }
+
+            NavigationStack {
                 SearchView()
             }
             .tabItem { Label("搜索", systemImage: "magnifyingglass") }
